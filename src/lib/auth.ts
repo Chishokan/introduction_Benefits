@@ -1,26 +1,37 @@
 import "server-only";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import {
-  SESSION_COOKIE,
-  SESSION_TTL_MS,
-  createSessionToken,
-  verifySessionToken,
-} from "./session";
+import { SESSION_COOKIE, SESSION_TTL_MS, createSessionToken, verifySessionToken, type Session } from "./session";
 
-export async function isAdmin(): Promise<boolean> {
+export type { Session };
+
+export async function getSession(): Promise<Session | null> {
   const store = await cookies();
   return verifySessionToken(store.get(SESSION_COOKIE)?.value);
 }
 
-// 職員用ページ・Server Action の先頭で必ず呼ぶ
-export async function requireAdmin(): Promise<void> {
-  if (!(await isAdmin())) redirect("/admin/login");
+export function homeFor(session: Session): string {
+  return session.role === "accounting" ? "/admin" : "/campus";
 }
 
-export async function startSession(): Promise<void> {
+// 経理専用のページ・Server Action の先頭で必ず呼ぶ
+export async function requireAccounting(): Promise<void> {
+  const session = await getSession();
+  if (!session) redirect("/login");
+  if (session.role !== "accounting") redirect(homeFor(session));
+}
+
+// 校舎担当者のページ・Server Action の先頭で必ず呼ぶ。ログイン中の校舎 ID を返す
+export async function requireCampus(): Promise<number> {
+  const session = await getSession();
+  if (!session) redirect("/login");
+  if (session.role !== "campus") redirect(homeFor(session));
+  return session.campusId;
+}
+
+export async function startSession(session: Session): Promise<void> {
   const store = await cookies();
-  store.set(SESSION_COOKIE, createSessionToken(), {
+  store.set(SESSION_COOKIE, createSessionToken(session), {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",

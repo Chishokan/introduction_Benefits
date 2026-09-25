@@ -16,8 +16,10 @@ model Campus {
   name         String        @unique
   sortOrder    Int           @default(0)
   active       Boolean       @default(true)
+  passwordHash String? // 校舎担当者ログイン用パスワード（scrypt）。未設定の校舎はログイン不可
   referrals    Referral[]
   applications Application[]
+  applyErrors  ApplyError[]
 }
 
 // 特典コード（紹介カード1枚＝1レコード）
@@ -70,4 +72,22 @@ model Application {
   createdAt          DateTime  @default(now())
 
   @@index([referralId])
+}
+
+// 保護者の申込みが受け付けられなかった記録（旧運用の「申込みエラー」通知に相当）
+// 入力チェックの不備ではなく、招待コードが見つからない等で送信できなかったもの
+model ApplyError {
+  id           Int       @id @default(autoincrement())
+  code         String // 保護者が入力した招待コード
+  reason       String // not_found / gift_sent
+  campusId     Int? // 保護者が選択した所属校舎
+  campus       Campus?   @relation(fields: [campusId], references: [id])
+  studentName  String
+  guardianName String
+  email        String
+  phone        String
+  resolvedAt   DateTime? // 経理・校舎が対応済みにした日時
+  createdAt    DateTime  @default(now())
+
+  @@index([campusId])
 }

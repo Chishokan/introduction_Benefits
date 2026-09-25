@@ -3,75 +3,26 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { endSession, requireAdmin, startSession } from "@/lib/auth";
-import { ENROLLMENT_TYPES } from "@/lib/constants";
-import { parseDateInput } from "@/lib/dates";
+import { requireAccounting } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { sendMail } from "@/lib/mail";
 import { expiryNoticeMail } from "@/lib/mailTemplates";
-import { normalizeCode, normalizeName } from "@/lib/normalize";
-import { findDuplicateReferred, type DuplicateMatch } from "@/lib/referrals";
+import {
+  assignmentData,
+  checkAssignment,
+  date,
+  enrollmentType,
+  personName,
+  text,
+  type ActionState,
+} from "@/lib/formData";
+import { normalizeCode } from "@/lib/normalize";
 import { qrDeadlineDate } from "@/lib/rules";
-import { checkPassword } from "@/lib/session";
+import { hashPassword } from "@/lib/session";
 
-export type ActionState = {
-  ok?: boolean;
-  message?: string;
-  error?: string;
-  // 紹介された外部生が過去に特典対象になっている場合の該当コード
-  duplicates?: DuplicateMatch[];
-};
+export type { ActionState };
 
 const MAX_RANGE = 500;
-
-function text(formData: FormData, name: string): string | null {
-  const v = String(formData.get(name) ?? "").trim();
-  return v === "" ? null : v;
-}
-
-function date(formData: FormData, name: string): Date | null {
-  return parseDateInput(text(formData, name));
-}
-
-function name(formData: FormData, key: string): string | null {
-  const v = text(formData, key);
-  return v ? normalizeName(v) : null;
-}
-
-// 生徒への割当（運用マニュアル STEP3）の入力チェック。
-// 塾生名を入れる場合は「紹介された生徒名」「区分」を必須とし、同じ外部生の重複を確認する。
-async function checkAssignment(formData: FormData, excludeId?: number): Promise<ActionState | null> {
-  if (!text(formData, "studentName")) return null;
-  if (!text(formData, "referredName")) return { error: "紹介された生徒名を入力してください" };
-  if (!enrollmentType(formData)) return { error: "区分（通常入会／講習会申込み）を選択してください" };
-  if (formData.get("duplicateAck") === "on") return null;
-  const duplicates = await findDuplicateReferred(text(formData, "referredName"), excludeId);
-  if (duplicates.length === 0) return null;
-  return {
-    error:
-      "この外部生は過去に紹介特典の対象として登録されています。外部生1名につき特典は1回のみです（講習会・入塾を問わず）。",
-    duplicates,
-  };
-}
-
-function enrollmentType(formData: FormData): string | null {
-  const v = text(formData, "enrollmentType");
-  return v && (ENROLLMENT_TYPES as readonly string[]).includes(v) ? v : null;
-}
-
-// ---- ログイン -------------------------------------------------------------
-
-export async function login(_prev: ActionState, formData: FormData): Promise<ActionState> {
-  const password = String(formData.get("password") ?? "");
-  if (!checkPassword(password)) return { error: "パスワードが違います" };
-  await startSession();
-  redirect("/admin");
-}
-
-export async function logout(): Promise<void> {
-  await endSession();
-  redirect("/admin/login");
-}
 
 // ---- 特典コード ------------------------------------------------------------
 
@@ -81,7 +32,7 @@ const codeField = z
   .refine((v) => /^\d{4,10}$/.test(v), "コードは4〜10桁の数字で入力してください");
 
 export async function createReferrals(_prev: ActionState, formData: FormData): Promise<ActionState> {
-  await requireAdmin();
+  await requireAccounting();
 
   const campusId = Number(formData.get("campusId"));
   if (!campusId || !(await prisma.campus.findUnique({ where: { id: campusId } }))) {
@@ -106,7 +57,7 @@ export async function createReferrals(_prev: ActionState, formData: FormData): P
   const fresh = codes.filter((c) => !existing.has(c));
   if (fresh.length === 0) return { error: "指定したコードはすべて登録済みです" };
 
-  const studentName = name(formData, "studentName");
+  const studentName = personName(formData, "studentName");
   if (studentName && codes.length > 1) {
     return { error: "連番登録では塾生を入力できません。1件ずつ登録してください" };
   }
@@ -117,7 +68,7 @@ export async function createReferrals(_prev: ActionState, formData: FormData): P
     campusId,
     enrollmentType: enrollmentType(formData),
     studentName,
-    referredName: name(formData, "referredName"),
+    referredName: personName(formData, "referredName"),
     staffName: text(formData, "staffName"),
     distributedAt: date(formData, "distributedAt"),
     enrolledAt: date(formData, "enrolledAt"),
@@ -137,7 +88,7 @@ export async function createReferrals(_prev: ActionState, formData: FormData): P
 }
 
 export async function updateReferral(id: number, _prev: ActionState, formData: FormData): Promise<ActionState> {
-  await requireAdmin();
+  await requireAccounting();
 
   const code = codeField.safeParse(String(formData.get("code") ?? ""));
   if (!code.success) return { error: code.error.issues[0].message };
@@ -151,23 +102,14 @@ export async function updateReferral(id: number, _prev: ActionState, formData: F
   if (assignment) return assignment;
 
   const current = await prisma.referral.findUnique({ where: { id }, select: { assignedAt: true } });
-  const studentName = name(formData, "studentName");
 
   await prisma.referral.update({
     where: { id },
     data: {
       code: code.data,
       campusId,
-      enrollmentType: enrollmentType(formData),
-      studentName,
-      referredName: name(formData, "referredName"),
-      staffName: text(formData, "staffName"),
       distributedAt: date(formData, "distributedAt"),
-      // 最初に塾生を割り当てた日時を STEP3 の入力日時として残す
-      assignedAt: studentName ? (current?.assignedAt ?? new Date()) : null,
-      cardGivenAt: date(formData, "cardGivenAt"),
-      duplicateAck: formData.get("duplicateAck") === "on",
-      enrolledAt: date(formData, "enrolledAt"),
+      ...assignmentData(formData, current?.assignedAt ?? null),
       paidAt: date(formData, "paidAt"),
       amazonOrderedAt: date(formData, "amazonOrderedAt"),
       giftCode: text(formData, "giftCode"),
@@ -175,13 +117,12 @@ export async function updateReferral(id: number, _prev: ActionState, formData: F
       note: text(formData, "note"),
     },
   });
-  revalidatePath("/admin");
-  revalidatePath(`/admin/referrals/${id}`);
+  revalidatePath("/", "layout");
   return { ok: true, message: "保存しました" };
 }
 
 export async function deleteReferral(id: number): Promise<void> {
-  await requireAdmin();
+  await requireAccounting();
   const count = await prisma.application.count({ where: { referralId: id } });
   if (count > 0) throw new Error("申込みがあるコードは削除できません");
   await prisma.referral.delete({ where: { id } });
@@ -192,7 +133,7 @@ export async function deleteReferral(id: number): Promise<void> {
 // ---- 保護者申込み ----------------------------------------------------------
 
 export async function setApplicationConfirmed(id: number, confirmed: boolean): Promise<void> {
-  await requireAdmin();
+  await requireAccounting();
   const app = await prisma.application.update({
     where: { id },
     data: { confirmedAt: confirmed ? new Date() : null },
@@ -203,7 +144,7 @@ export async function setApplicationConfirmed(id: number, confirmed: boolean): P
 
 // 期限超過の申請を特例として有効にする（校舎責任者・NEP 相談の上）
 export async function approveLateApplication(id: number, formData: FormData): Promise<void> {
-  await requireAdmin();
+  await requireAccounting();
   const note = text(formData, "exceptionNote");
   if (!note) throw new Error("特例の理由を入力してください");
   const app = await prisma.application.update({
@@ -215,7 +156,7 @@ export async function approveLateApplication(id: number, formData: FormData): Pr
 }
 
 export async function revokeLateApproval(id: number): Promise<void> {
-  await requireAdmin();
+  await requireAccounting();
   const app = await prisma.application.update({
     where: { id },
     data: { exceptionAt: null, exceptionNote: null },
@@ -225,7 +166,7 @@ export async function revokeLateApproval(id: number): Promise<void> {
 }
 
 export async function resendExpiryNotice(id: number): Promise<void> {
-  await requireAdmin();
+  await requireAccounting();
   const app = await prisma.application.findUniqueOrThrow({
     where: { id },
     include: { referral: true, campus: true },
@@ -245,7 +186,7 @@ export async function resendExpiryNotice(id: number): Promise<void> {
 }
 
 export async function deleteApplication(id: number): Promise<void> {
-  await requireAdmin();
+  await requireAccounting();
   const app = await prisma.application.delete({ where: { id } });
   revalidatePath(`/admin/referrals/${app.referralId}`);
   revalidatePath("/admin");
@@ -254,7 +195,7 @@ export async function deleteApplication(id: number): Promise<void> {
 // ---- 校舎 ------------------------------------------------------------------
 
 export async function saveCampus(id: number | null, formData: FormData): Promise<void> {
-  await requireAdmin();
+  await requireAccounting();
   const name = text(formData, "name");
   if (!name) return;
   const data = {
@@ -264,5 +205,20 @@ export async function saveCampus(id: number | null, formData: FormData): Promise
   };
   if (id) await prisma.campus.update({ where: { id }, data });
   else await prisma.campus.upsert({ where: { name }, update: {}, create: { ...data, active: true } });
+  revalidatePath("/admin/campuses");
+}
+
+// 校舎担当者ログイン用のパスワードを設定する（空欄なら変更しない）
+export async function setCampusPassword(id: number, formData: FormData): Promise<void> {
+  await requireAccounting();
+  const password = text(formData, "password");
+  if (!password || password.length < 8) throw new Error("パスワードは8文字以上にしてください");
+  await prisma.campus.update({ where: { id }, data: { passwordHash: hashPassword(password) } });
+  revalidatePath("/admin/campuses");
+}
+
+export async function clearCampusPassword(id: number): Promise<void> {
+  await requireAccounting();
+  await prisma.campus.update({ where: { id }, data: { passwordHash: null } });
   revalidatePath("/admin/campuses");
 }

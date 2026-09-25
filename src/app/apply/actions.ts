@@ -42,7 +42,23 @@ export async function submitApplication(_prev: ApplyState, formData: FormData): 
     prisma.campus.findFirst({ where: { id: input.campusId, active: true } }),
   ]);
   if (!campus) return { errors: { campusId: "所属校舎を選択してください" }, values };
+
+  // 招待コードの誤り等で受け付けられなかった申込みは、校舎が保護者へ連絡できるよう記録する
+  const logError = (reason: "not_found" | "gift_sent") =>
+    prisma.applyError.create({
+      data: {
+        code: input.code,
+        reason,
+        campusId: campus.id,
+        studentName: input.studentName,
+        guardianName: input.guardianName,
+        email: input.email,
+        phone: input.phone,
+      },
+    });
+
   if (!referral) {
+    await logError("not_found");
     return {
       errors: {
         code: "招待コードが見つかりません。カードに記載のコードをご確認ください。",
@@ -51,6 +67,7 @@ export async function submitApplication(_prev: ApplyState, formData: FormData): 
     };
   }
   if (referral.giftSentAt) {
+    await logError("gift_sent");
     return {
       errors: { code: "この招待コードの特典はすでにお送りしています。" },
       values,

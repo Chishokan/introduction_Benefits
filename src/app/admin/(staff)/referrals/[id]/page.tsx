@@ -2,13 +2,15 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { FlagBadges } from "@/components/ReferralOverview";
+import { ReferralSteps } from "@/components/ReferralSteps";
 import { StatusBadge } from "@/components/StatusBadge";
-import { formatDate, formatDateTime } from "@/lib/dates";
+import { formatDateTime } from "@/lib/dates";
 import { prisma } from "@/lib/db";
 import { isMailConfigured } from "@/lib/mail";
 import { sameName } from "@/lib/normalize";
-import { findDuplicateReferred, withStatus } from "@/lib/referrals";
-import { isStaffInputDelayed, isValidApplication, qrDeadlineDate, staffInputDeadlineDate } from "@/lib/rules";
+import { findDuplicateReferred, getReferralRow, withStatus } from "@/lib/referrals";
+import { isValidApplication } from "@/lib/rules";
 import {
   approveLateApplication,
   deleteApplication,
@@ -33,8 +35,7 @@ export default async function ReferralPage({ params }: PageProps<"/admin/referra
   const status = withStatus(referral);
   const duplicates = referral.duplicateAck ? [] : await findDuplicateReferred(referral.referredName, referral.id);
   const earlier = duplicates.filter((d) => d.id < referral.id);
-  const delayed = isStaffInputDelayed(referral.enrolledAt, referral.assignedAt, new Date());
-  const qrDeadline = referral.cardGivenAt ? qrDeadlineDate(referral.cardGivenAt) : null;
+  const flags = (await getReferralRow(referral.id))?.flags;
   const h = await headers();
   const origin = process.env.APP_URL ?? `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}`;
   const applyUrl = `${origin}/apply?code=${referral.code}`;
@@ -49,46 +50,10 @@ export default async function ReferralPage({ params }: PageProps<"/admin/referra
         <h1 className="font-mono text-2xl font-bold">{referral.code}</h1>
         <StatusBadge status={status} />
         <span className="text-sm text-slate-500">{referral.campus.name}</span>
+        {flags && <FlagBadges flags={flags} />}
       </div>
 
-      <div className="card grid gap-x-6 gap-y-2 p-4 text-sm sm:grid-cols-3">
-        <div>
-          <div className="text-xs text-slate-500">職員入力（STEP3）</div>
-          {referral.assignedAt ? formatDateTime(referral.assignedAt) : <span className="text-slate-400">未入力</span>}
-          {referral.enrolledAt && (
-            <div className={`text-xs ${delayed ? "font-semibold text-rose-600" : "text-slate-500"}`}>
-              期限 {formatDate(staffInputDeadlineDate(referral.enrolledAt))}
-              {delayed && " ⚠ 3日超過"}
-            </div>
-          )}
-        </div>
-        <div>
-          <div className="text-xs text-slate-500">カード配布（STEP4）</div>
-          {referral.cardGivenAt ? formatDate(referral.cardGivenAt) : <span className="text-slate-400">未入力</span>}
-        </div>
-        <div>
-          <div className="text-xs text-slate-500">保護者の入力期限（STEP5）</div>
-          {qrDeadline ? (
-            <span className={status === "expired" ? "font-semibold text-rose-600" : ""}>
-              {formatDate(qrDeadline)} まで{status === "expired" && "（期限切れ）"}
-            </span>
-          ) : (
-            <span className="text-slate-400">カード配布日の入力で設定</span>
-          )}
-        </div>
-      </div>
-
-      {earlier.length > 0 && (
-        <div role="alert" className="rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-800">
-          ⚠ 紹介された外部生「{referral.referredName}」は、先に登録されたコード
-          {earlier.map((d) => (
-            <Link key={d.id} href={`/admin/referrals/${d.id}`} className="mx-1 font-mono font-semibold underline">
-              {d.code}
-            </Link>
-          ))}
-          でも特典対象になっています。外部生1名につき特典は1回のみです。
-        </div>
-      )}
+      <ReferralSteps referral={referral} status={status} earlier={earlier} linkBase="/admin/referrals" />
 
       <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
         <section className="space-y-3">

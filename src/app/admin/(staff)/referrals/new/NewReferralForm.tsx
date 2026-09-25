@@ -67,7 +67,7 @@ export function NewReferralForm({
             <input id="cardGivenAt" name="cardGivenAt" type="date" defaultValue={today} className="input" />
           </Field>
         </div>
-        {state.duplicates && state.duplicates.length > 0 && <DuplicateWarning duplicates={state.duplicates} />}
+        {state.duplicates && state.duplicates.length > 0 && <DuplicateWarning duplicates={state.duplicates} linkBase="/admin/referrals" />}
       </fieldset>
 
       <Field label="備考" name="note">

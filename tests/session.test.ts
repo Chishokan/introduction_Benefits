@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { SESSION_TTL_MS, checkPassword, createSessionToken, verifySessionToken } from "@/lib/session";
+import {
+  SESSION_TTL_MS,
+  checkAccountingPassword,
+  createSessionToken,
+  hashPassword,
+  verifyPassword,
+  verifySessionToken,
+} from "@/lib/session";
 
 beforeEach(() => {
   process.env.SESSION_SECRET = "test-secret-0123456789";
@@ -7,23 +14,34 @@ beforeEach(() => {
 });
 
 describe("session", () => {
-  it("署名済みトークンを検証できる", () => {
+  it("役割と校舎を含むトークンを検証できる", () => {
     const now = 1_700_000_000_000;
-    const token = createSessionToken(now);
-    expect(verifySessionToken(token, now + 1000)).toBe(true);
-    expect(verifySessionToken(token, now + SESSION_TTL_MS + 1)).toBe(false);
+    expect(verifySessionToken(createSessionToken({ role: "accounting" }, now), now + 1000)).toEqual({
+      role: "accounting",
+    });
+    const campus = createSessionToken({ role: "campus", campusId: 3 }, now);
+    expect(verifySessionToken(campus, now + 1000)).toEqual({ role: "campus", campusId: 3 });
+    expect(verifySessionToken(campus, now + SESSION_TTL_MS + 1)).toBeNull();
   });
   it("改ざん・不正な値を拒否する", () => {
-    const token = createSessionToken();
-    const [exp, sig] = token.split(".");
-    expect(verifySessionToken(`${Number(exp) + 1}.${sig}`)).toBe(false);
-    expect(verifySessionToken("garbage")).toBe(false);
-    expect(verifySessionToken(undefined)).toBe(false);
+    const [, sig] = createSessionToken({ role: "campus", campusId: 1 }).split(".");
+    const forged = Buffer.from(JSON.stringify({ role: "accounting", exp: Date.now() + 1e6 })).toString("base64url");
+    expect(verifySessionToken(`${forged}.${sig}`)).toBeNull();
+    expect(verifySessionToken("garbage")).toBeNull();
+    expect(verifySessionToken(undefined)).toBeNull();
   });
-  it("パスワードを照合する", () => {
-    expect(checkPassword("pass-word")).toBe(true);
-    expect(checkPassword("pass-wor")).toBe(false);
+  it("経理パスワードを照合する", () => {
+    expect(checkAccountingPassword("pass-word")).toBe(true);
+    expect(checkAccountingPassword("pass-wor")).toBe(false);
     delete process.env.ADMIN_PASSWORD;
-    expect(checkPassword("")).toBe(false);
+    expect(checkAccountingPassword("")).toBe(false);
+  });
+  it("校舎パスワードはハッシュで照合する", () => {
+    const stored = hashPassword("hino-2026");
+    expect(stored).not.toContain("hino-2026");
+    expect(verifyPassword("hino-2026", stored)).toBe(true);
+    expect(verifyPassword("hino-2027", stored)).toBe(false);
+    expect(verifyPassword("hino-2026", null)).toBe(false);
+    expect(hashPassword("x")).not.toBe(hashPassword("x"));
   });
 });

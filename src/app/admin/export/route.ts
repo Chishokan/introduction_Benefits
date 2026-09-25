@@ -1,4 +1,4 @@
-import { isAdmin } from "@/lib/auth";
+import { getSession } from "@/lib/auth";
 import { toCsv } from "@/lib/csv";
 import { formatDate, formatDateTime } from "@/lib/dates";
 import { FLAGS, isFlagKey, listReferrals } from "@/lib/referrals";
@@ -6,7 +6,8 @@ import { isStatusKey, statusLabel } from "@/lib/status";
 
 // 一覧画面の絞り込み条件のまま、管理表と同じ並びの CSV を出力する
 export async function GET(request: Request) {
-  if (!(await isAdmin())) return new Response("Unauthorized", { status: 401 });
+  const session = await getSession();
+  if (session?.role !== "accounting") return new Response("Unauthorized", { status: 401 });
 
   const sp = new URL(request.url).searchParams;
   const status = sp.get("status") ?? undefined;

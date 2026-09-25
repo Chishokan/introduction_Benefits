@@ -1,29 +1,23 @@
 import Link from "next/link";
 import { logout } from "@/app/login/actions";
-import { requireAccounting } from "@/lib/auth";
+import { requireCampus } from "@/lib/auth";
+import { prisma } from "@/lib/db";
 
-const NAV = [
-  { href: "/admin", label: "特典コード一覧" },
-  { href: "/admin/referrals/new", label: "コード登録" },
-  { href: "/admin/apply-errors", label: "申込みエラー" },
-  { href: "/admin/campuses", label: "校舎・パスワード" },
-] as const;
-
-export default async function AccountingLayout({ children }: LayoutProps<"/admin">) {
-  await requireAccounting();
+export default async function CampusLayout({ children }: LayoutProps<"/campus">) {
+  const campusId = await requireCampus();
+  const campus = await prisma.campus.findUnique({ where: { id: campusId } });
   return (
     <>
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
-          <Link href="/admin" className="font-bold text-brand-700">
-            紹介特典 管理<span className="ml-2 rounded bg-brand-600 px-1.5 py-0.5 text-xs text-white">経理</span>
+          <Link href="/campus" className="font-bold text-brand-700">
+            紹介特典 状況確認
+            <span className="ml-2 rounded bg-accent px-1.5 py-0.5 text-xs text-slate-900">{campus?.name}</span>
           </Link>
           <nav className="flex flex-1 flex-wrap gap-4 text-sm">
-            {NAV.map((n) => (
-              <Link key={n.href} href={n.href} className="text-slate-600 hover:text-brand-600">
-                {n.label}
-              </Link>
-            ))}
+            <Link href="/campus" className="text-slate-600 hover:text-brand-600">
+              状況・エラー
+            </Link>
             <Link href="/apply" target="_blank" className="text-slate-600 hover:text-brand-600">
               申込フォーム↗
             </Link>
