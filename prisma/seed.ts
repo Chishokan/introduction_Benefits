@@ -4,10 +4,13 @@ const prisma = new PrismaClient();
 
 const CAMPUSES = ["日野校", "日宇校", "大野校", "佐々校"];
 
+// 初回だけ校舎を登録する（校舎が1件でもあれば何もしない。以降は管理画面の「校舎」で管理）
 async function main() {
-  for (const [i, name] of CAMPUSES.entries()) {
-    await prisma.campus.upsert({ where: { name }, update: {}, create: { name, sortOrder: i + 1 } });
+  if ((await prisma.campus.count()) > 0) {
+    console.log("校舎は登録済みのためスキップしました");
+    return;
   }
+  await prisma.campus.createMany({ data: CAMPUSES.map((name, i) => ({ name, sortOrder: i + 1 })) });
   console.log(`校舎 ${CAMPUSES.length} 件を登録しました`);
 }
 

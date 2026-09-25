@@ -83,7 +83,7 @@ Google フォーム＋スプレッドシート（【中等部】紹介特典（�
 
 ## 本番環境の準備
 
-**[docs/DEPLOY.md](docs/DEPLOY.md)** に、Supabase・GAS・ホスティングの設定手順とチェックリストをまとめています。
+**[docs/DEPLOY.md](docs/DEPLOY.md)** に、Vercel・Supabase・GAS の設定手順とチェックリストをまとめています。
 
 ## 開発環境のセットアップ
 
