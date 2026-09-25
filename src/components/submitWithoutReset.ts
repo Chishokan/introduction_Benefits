@@ -5,7 +5,9 @@ import { startTransition, type FormEvent } from "react";
 export function submitWithoutReset(action: (data: FormData) => void) {
   return (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const data = new FormData(event.currentTarget);
+    // 押されたボタンの name/value も含める（「確認する」「取り込む」など）
+    const submitter = (event.nativeEvent as SubmitEvent).submitter;
+    const data = new FormData(event.currentTarget, submitter);
     startTransition(() => action(data));
   };
 }

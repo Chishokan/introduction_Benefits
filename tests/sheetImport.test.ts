@@ -77,3 +77,15 @@ describe("sheetImport", () => {
     expect(b.amazonOrdered).toBe(false);
   });
 });
+
+describe("decodeCsv", () => {
+  it("UTF-8 と Shift_JIS（Excel 保存）の両方を読める", async () => {
+    const { decodeCsv } = await import("@/lib/importSheet");
+    const text = "校舎名,生徒名\r\n日野校,智翔 太郎\r\n";
+    const utf8 = new TextEncoder().encode(text);
+    expect(decodeCsv(utf8.buffer)).toBe(text);
+    // 「校舎名,生徒名」の Shift_JIS バイト列
+    const sjis = new Uint8Array([0x8d, 0x5a, 0x8e, 0xc9, 0x96, 0xbc, 0x2c, 0x90, 0xb6, 0x93, 0x6b, 0x96, 0xbc]);
+    expect(decodeCsv(sjis.buffer)).toBe("校舎名,生徒名");
+  });
+});

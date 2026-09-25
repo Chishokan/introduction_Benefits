@@ -18,6 +18,7 @@ import {
 } from "@/lib/formData";
 import { normalizeCode } from "@/lib/normalize";
 import { qrDeadlineDate } from "@/lib/rules";
+import { decodeCsv, importSheetRows, readSheet, type ImportResult } from "@/lib/importSheet";
 import { hashPassword } from "@/lib/session";
 
 export type { ActionState };
@@ -221,4 +222,30 @@ export async function clearCampusPassword(id: number): Promise<void> {
   await requireAccounting();
   await prisma.campus.update({ where: { id }, data: { passwordHash: null } });
   revalidatePath("/admin/campuses");
+}
+
+// ---- 管理表 CSV の取り込み --------------------------------------------------
+
+export type ImportState = { error?: string; dryRun?: boolean; fileName?: string; result?: ImportResult };
+
+const MAX_CSV_BYTES = 3 * 1024 * 1024;
+
+export async function importSheet(_prev: ImportState, formData: FormData): Promise<ImportState> {
+  await requireAccounting();
+  const file = formData.get("file");
+  const dryRun = formData.get("mode") !== "import";
+  if (!(file instanceof File) || file.size === 0) return { error: "CSV ファイルを選択してください" };
+  if (file.size > MAX_CSV_BYTES) return { error: "ファイルが大きすぎます（3MB まで）" };
+
+  let rows;
+  try {
+    rows = readSheet(decodeCsv(await file.arrayBuffer()));
+  } catch (e) {
+    return { error: `CSV を読み取れませんでした: ${e instanceof Error ? e.message : String(e)}` };
+  }
+  if (rows.length === 0) return { error: "特典コードの行が見つかりませんでした。管理表のシートを CSV で書き出したか確認してください" };
+
+  const result = await importSheetRows(prisma, rows, { dryRun });
+  if (!dryRun) revalidatePath("/", "layout");
+  return { dryRun, fileName: file.name, result };
 }

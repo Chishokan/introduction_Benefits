@@ -7,6 +7,7 @@ const NAV = [
   { href: "/admin/referrals/new", label: "コード登録" },
   { href: "/admin/apply-errors", label: "申込みエラー" },
   { href: "/admin/campuses", label: "校舎・パスワード" },
+  { href: "/admin/import", label: "データ取り込み" },
 ] as const;
 
 export default async function AccountingLayout({ children }: LayoutProps<"/admin">) {
