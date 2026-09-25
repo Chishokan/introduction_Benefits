@@ -44,7 +44,7 @@ export default async function ReferralPage({ params }: PageProps<"/admin/referra
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
-        <Link href="/admin" className="text-sm text-slate-500 hover:text-brand-600">
+        <Link href="/admin/referrals" className="text-sm text-slate-500 hover:text-brand-600">
           ← 一覧
         </Link>
         <h1 className="font-mono text-2xl font-bold">{referral.code}</h1>

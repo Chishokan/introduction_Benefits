@@ -3,7 +3,9 @@ import { logout } from "@/app/login/actions";
 import { requireAccounting } from "@/lib/auth";
 
 const NAV = [
-  { href: "/admin", label: "特典コード一覧" },
+  { href: "/admin", label: "ダッシュボード" },
+  { href: "/admin/referrals", label: "特典コード一覧" },
+  { href: "/admin/applications", label: "申込み一覧" },
   { href: "/admin/referrals/new", label: "コード登録" },
   { href: "/admin/apply-errors", label: "申込みエラー" },
   { href: "/admin/campuses", label: "校舎・パスワード" },
