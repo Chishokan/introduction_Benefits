@@ -2,6 +2,9 @@
 
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { sendMail } from "@/lib/mail";
+import { expiryNoticeMail } from "@/lib/mailTemplates";
+import { isAfterQrDeadline, qrDeadlineDate } from "@/lib/rules";
 import { applicationSchema, firstErrors, type FieldErrors } from "@/lib/validation";
 
 export type ApplyState = {
@@ -54,8 +57,12 @@ export async function submitApplication(_prev: ApplyState, formData: FormData): 
     };
   }
 
-  await prisma.application.create({
+  // カード配布から1か月を過ぎた入力は無効。記録は残し（管理画面に「期限終了後申請」と表示）、保護者へ通知する
+  const late = isAfterQrDeadline(referral.cardGivenAt, new Date());
+
+  const application = await prisma.application.create({
     data: {
+      late,
       referralId: referral.id,
       campusId: campus.id,
       studentName: input.studentName,
@@ -67,6 +74,22 @@ export async function submitApplication(_prev: ApplyState, formData: FormData): 
       referredName: input.referredName,
     },
   });
+
+  if (late && referral.cardGivenAt) {
+    const sent = await sendMail({
+      to: input.email,
+      ...expiryNoticeMail({
+        guardianName: input.guardianName,
+        code: referral.code,
+        campusName: campus.name,
+        deadline: qrDeadlineDate(referral.cardGivenAt),
+      }),
+    });
+    if (sent) {
+      await prisma.application.update({ where: { id: application.id }, data: { expiryNoticeSentAt: new Date() } });
+    }
+    redirect("/apply/expired");
+  }
 
   redirect("/apply/complete");
 }

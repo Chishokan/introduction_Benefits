@@ -2,6 +2,7 @@ import { STATUSES, type StatusKey } from "@/lib/status";
 
 const TONES: Record<string, string> = {
   slate: "bg-slate-100 text-slate-700 ring-slate-300",
+  stone: "bg-stone-200 text-stone-700 ring-stone-400",
   sky: "bg-sky-50 text-sky-700 ring-sky-300",
   amber: "bg-amber-50 text-amber-800 ring-amber-300",
   rose: "bg-rose-50 text-rose-700 ring-rose-300",

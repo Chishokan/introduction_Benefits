@@ -39,6 +39,8 @@ async function main() {
         studentName: row.studentName ?? row.application?.studentName ?? null,
         referredName: row.referredName,
         enrolledAt: row.enrolledAt,
+        // 管理表には職員入力日時がないため、入塾・申込日に入力済みとみなす（3日超過の警告を出さない）
+        assignedAt: row.studentName ? (row.enrolledAt ?? new Date()) : null,
         paidAt: row.paidAt,
         // 管理表には発注日がないため、送付日（なければ取込日）を発注日とみなす
         amazonOrderedAt: row.amazonOrdered ? (row.giftSentAt ?? new Date()) : null,

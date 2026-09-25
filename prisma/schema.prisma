@@ -31,7 +31,10 @@ model Referral {
   studentName     String? // 職員入力: 特典を受け取る生徒名（塾生）
   referredName    String? // 職員入力: 紹介されて入塾・講習申込した方の氏名
   staffName       String? // 担当者名
-  distributedAt   DateTime? // 校舎配布日
+  distributedAt   DateTime? // 校舎配布日（印刷したカードを校舎へ送った日）
+  assignedAt      DateTime? // 職員が特典管理に生徒を入力した日時（STEP3）
+  cardGivenAt     DateTime? // 塾生へカードを渡した日（STEP4）。保護者の入力期限の起点
+  duplicateAck    Boolean       @default(false) // 紹介された方の重複を確認のうえ登録した（同姓同名の別人）
   enrolledAt      DateTime? // 入塾日・講習申込日
   paidAt          DateTime? // 入金日
   amazonOrderedAt DateTime? // Amazon ギフトコード発注日
@@ -47,20 +50,24 @@ model Referral {
 
 // 保護者からの申込み（Google フォーム「紹介特典」の回答に相当）
 model Application {
-  id            Int       @id @default(autoincrement())
-  referralId    Int
-  referral      Referral  @relation(fields: [referralId], references: [id])
-  campusId      Int
-  campus        Campus    @relation(fields: [campusId], references: [id])
-  studentName   String // 生徒名（塾生）
-  guardianName  String // 保護者名
-  email         String
-  address       String
-  phone         String
-  referredGrade String // ご紹介した方の学年
-  referredName  String // ご紹介した方の氏名
-  confirmedAt   DateTime? // 職員が内容を確認した日時
-  createdAt     DateTime  @default(now())
+  id                 Int       @id @default(autoincrement())
+  referralId         Int
+  referral           Referral  @relation(fields: [referralId], references: [id])
+  campusId           Int
+  campus             Campus    @relation(fields: [campusId], references: [id])
+  studentName        String // 生徒名（塾生）
+  guardianName       String // 保護者名
+  email              String
+  address            String
+  phone              String
+  referredGrade      String // ご紹介した方の学年
+  referredName       String // ご紹介した方の氏名
+  confirmedAt        DateTime? // 職員が内容を確認した日時
+  late               Boolean   @default(false) // 入力期限（カード配布から1か月）を過ぎた申請
+  exceptionAt        DateTime? // 期限超過を特例として承認した日時（校舎責任者・NEP相談の上）
+  exceptionNote      String?
+  expiryNoticeSentAt DateTime? // 期限切れ通知メールを送信した日時
+  createdAt          DateTime  @default(now())
 
   @@index([referralId])
 }

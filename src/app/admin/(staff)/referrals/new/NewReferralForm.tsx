@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import { DuplicateWarning } from "@/components/DuplicateWarning";
 import { Field } from "@/components/Field";
 import { submitWithoutReset } from "@/components/submitWithoutReset";
 import { ENROLLMENT_TYPES } from "@/lib/constants";
@@ -30,7 +31,7 @@ export function NewReferralForm({
         </Field>
         <Field label="区分" name="enrollmentType">
           <select id="enrollmentType" name="enrollmentType" className="input">
-            <option value="">未定</option>
+            <option value="">選択してください</option>
             {ENROLLMENT_TYPES.map((t) => (
               <option key={t}>{t}</option>
             ))}
@@ -42,19 +43,33 @@ export function NewReferralForm({
         <Field label="終了コード（連番登録する場合）" name="codeTo">
           <input id="codeTo" name="codeTo" inputMode="numeric" className="input font-mono" />
         </Field>
-        <Field label="塾生（特典を受け取る生徒）" name="studentName">
-          <input id="studentName" name="studentName" className="input" />
-        </Field>
-        <Field label="紹介された方" name="referredName" hint="入塾・講習申込みした方の氏名">
-          <input id="referredName" name="referredName" className="input" />
+        <Field label="校舎配布日" name="distributedAt" hint="印刷したカードを校舎へ送った日">
+          <input id="distributedAt" name="distributedAt" type="date" className="input" />
         </Field>
         <Field label="担当者" name="staffName">
           <input id="staffName" name="staffName" className="input" />
         </Field>
-        <Field label="校舎配布日" name="distributedAt">
-          <input id="distributedAt" name="distributedAt" type="date" defaultValue={today} className="input" />
-        </Field>
       </div>
+
+      <fieldset className="space-y-4 border-t border-slate-100 pt-4">
+        <legend className="text-sm font-bold text-brand-700">特典管理（STEP3）・カード配布（STEP4）※1件登録のみ</legend>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="紹介してくれた塾生" name="studentName">
+            <input id="studentName" name="studentName" className="input" />
+          </Field>
+          <Field label="紹介された生徒（外部生）" name="referredName">
+            <input id="referredName" name="referredName" className="input" />
+          </Field>
+          <Field label="入塾日・講習申込日（STEP2）" name="enrolledAt">
+            <input id="enrolledAt" name="enrolledAt" type="date" className="input" />
+          </Field>
+          <Field label="カード配布日（塾生へ渡した日）" name="cardGivenAt" hint="保護者の入力期限（1か月）の起点">
+            <input id="cardGivenAt" name="cardGivenAt" type="date" defaultValue={today} className="input" />
+          </Field>
+        </div>
+        {state.duplicates && state.duplicates.length > 0 && <DuplicateWarning duplicates={state.duplicates} />}
+      </fieldset>
+
       <Field label="備考" name="note">
         <textarea id="note" name="note" rows={2} className="input" />
       </Field>

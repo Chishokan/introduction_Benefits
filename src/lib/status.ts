@@ -1,9 +1,12 @@
 // 特典コードの進捗ステータス。
 // 管理表の「Amazon発注済み」「メール送信日時」等の列から判断していた状態を、1つの値にまとめる。
 
+import { isAfterQrDeadline } from "./rules";
+
 export const STATUSES = [
   { key: "unassigned", label: "未割当", tone: "slate" },
   { key: "distributed", label: "申込待ち", tone: "sky" },
+  { key: "expired", label: "期限切れ", tone: "stone" },
   { key: "applied", label: "入塾・入金待ち", tone: "amber" },
   { key: "ready", label: "発注待ち", tone: "rose" },
   { key: "ordered", label: "送付待ち", tone: "violet" },
@@ -14,19 +17,21 @@ export type StatusKey = (typeof STATUSES)[number]["key"];
 
 export type StatusInput = {
   studentName: string | null;
+  cardGivenAt: Date | null;
   paidAt: Date | null;
   amazonOrderedAt: Date | null;
   giftSentAt: Date | null;
-  applicationCount: number;
+  // 期限内（または特例承認済み）の保護者申込み件数
+  validApplicationCount: number;
 };
 
-export function referralStatus(r: StatusInput): StatusKey {
+export function referralStatus(r: StatusInput, now = new Date()): StatusKey {
   if (r.giftSentAt) return "completed";
   if (r.amazonOrderedAt) return "ordered";
-  if (r.applicationCount > 0 && r.paidAt) return "ready";
-  if (r.applicationCount > 0) return "applied";
+  if (r.validApplicationCount > 0 && r.paidAt) return "ready";
+  if (r.validApplicationCount > 0) return "applied";
   // 校舎配布日はカードを校舎へ送った日なので、生徒への割当は生徒名で判断する
-  if (r.studentName) return "distributed";
+  if (r.studentName) return isAfterQrDeadline(r.cardGivenAt, now) ? "expired" : "distributed";
   return "unassigned";
 }
 

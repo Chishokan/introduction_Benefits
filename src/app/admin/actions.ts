@@ -7,10 +7,20 @@ import { endSession, requireAdmin, startSession } from "@/lib/auth";
 import { ENROLLMENT_TYPES } from "@/lib/constants";
 import { parseDateInput } from "@/lib/dates";
 import { prisma } from "@/lib/db";
-import { normalizeCode } from "@/lib/normalize";
+import { sendMail } from "@/lib/mail";
+import { expiryNoticeMail } from "@/lib/mailTemplates";
+import { normalizeCode, normalizeName } from "@/lib/normalize";
+import { findDuplicateReferred, type DuplicateMatch } from "@/lib/referrals";
+import { qrDeadlineDate } from "@/lib/rules";
 import { checkPassword } from "@/lib/session";
 
-export type ActionState = { ok?: boolean; message?: string; error?: string };
+export type ActionState = {
+  ok?: boolean;
+  message?: string;
+  error?: string;
+  // 紹介された外部生が過去に特典対象になっている場合の該当コード
+  duplicates?: DuplicateMatch[];
+};
 
 const MAX_RANGE = 500;
 
@@ -21,6 +31,27 @@ function text(formData: FormData, name: string): string | null {
 
 function date(formData: FormData, name: string): Date | null {
   return parseDateInput(text(formData, name));
+}
+
+function name(formData: FormData, key: string): string | null {
+  const v = text(formData, key);
+  return v ? normalizeName(v) : null;
+}
+
+// 生徒への割当（運用マニュアル STEP3）の入力チェック。
+// 塾生名を入れる場合は「紹介された生徒名」「区分」を必須とし、同じ外部生の重複を確認する。
+async function checkAssignment(formData: FormData, excludeId?: number): Promise<ActionState | null> {
+  if (!text(formData, "studentName")) return null;
+  if (!text(formData, "referredName")) return { error: "紹介された生徒名を入力してください" };
+  if (!enrollmentType(formData)) return { error: "区分（通常入会／講習会申込み）を選択してください" };
+  if (formData.get("duplicateAck") === "on") return null;
+  const duplicates = await findDuplicateReferred(text(formData, "referredName"), excludeId);
+  if (duplicates.length === 0) return null;
+  return {
+    error:
+      "この外部生は過去に紹介特典の対象として登録されています。外部生1名につき特典は1回のみです（講習会・入塾を問わず）。",
+    duplicates,
+  };
 }
 
 function enrollmentType(formData: FormData): string | null {
@@ -75,13 +106,24 @@ export async function createReferrals(_prev: ActionState, formData: FormData): P
   const fresh = codes.filter((c) => !existing.has(c));
   if (fresh.length === 0) return { error: "指定したコードはすべて登録済みです" };
 
+  const studentName = name(formData, "studentName");
+  if (studentName && codes.length > 1) {
+    return { error: "連番登録では塾生を入力できません。1件ずつ登録してください" };
+  }
+  const assignment = await checkAssignment(formData);
+  if (assignment) return assignment;
+
   const common = {
     campusId,
     enrollmentType: enrollmentType(formData),
-    studentName: text(formData, "studentName"),
-    referredName: text(formData, "referredName"),
+    studentName,
+    referredName: name(formData, "referredName"),
     staffName: text(formData, "staffName"),
     distributedAt: date(formData, "distributedAt"),
+    enrolledAt: date(formData, "enrolledAt"),
+    assignedAt: studentName ? new Date() : null,
+    cardGivenAt: studentName ? date(formData, "cardGivenAt") : null,
+    duplicateAck: formData.get("duplicateAck") === "on",
     note: text(formData, "note"),
   };
   revalidatePath("/admin");
@@ -105,16 +147,26 @@ export async function updateReferral(id: number, _prev: ActionState, formData: F
   const campusId = Number(formData.get("campusId"));
   if (!campusId) return { error: "校舎を選択してください" };
 
+  const assignment = await checkAssignment(formData, id);
+  if (assignment) return assignment;
+
+  const current = await prisma.referral.findUnique({ where: { id }, select: { assignedAt: true } });
+  const studentName = name(formData, "studentName");
+
   await prisma.referral.update({
     where: { id },
     data: {
       code: code.data,
       campusId,
       enrollmentType: enrollmentType(formData),
-      studentName: text(formData, "studentName"),
-      referredName: text(formData, "referredName"),
+      studentName,
+      referredName: name(formData, "referredName"),
       staffName: text(formData, "staffName"),
       distributedAt: date(formData, "distributedAt"),
+      // 最初に塾生を割り当てた日時を STEP3 の入力日時として残す
+      assignedAt: studentName ? (current?.assignedAt ?? new Date()) : null,
+      cardGivenAt: date(formData, "cardGivenAt"),
+      duplicateAck: formData.get("duplicateAck") === "on",
       enrolledAt: date(formData, "enrolledAt"),
       paidAt: date(formData, "paidAt"),
       amazonOrderedAt: date(formData, "amazonOrderedAt"),
@@ -147,6 +199,49 @@ export async function setApplicationConfirmed(id: number, confirmed: boolean): P
   });
   revalidatePath(`/admin/referrals/${app.referralId}`);
   revalidatePath("/admin");
+}
+
+// 期限超過の申請を特例として有効にする（校舎責任者・NEP 相談の上）
+export async function approveLateApplication(id: number, formData: FormData): Promise<void> {
+  await requireAdmin();
+  const note = text(formData, "exceptionNote");
+  if (!note) throw new Error("特例の理由を入力してください");
+  const app = await prisma.application.update({
+    where: { id },
+    data: { exceptionAt: new Date(), exceptionNote: note },
+  });
+  revalidatePath(`/admin/referrals/${app.referralId}`);
+  revalidatePath("/admin");
+}
+
+export async function revokeLateApproval(id: number): Promise<void> {
+  await requireAdmin();
+  const app = await prisma.application.update({
+    where: { id },
+    data: { exceptionAt: null, exceptionNote: null },
+  });
+  revalidatePath(`/admin/referrals/${app.referralId}`);
+  revalidatePath("/admin");
+}
+
+export async function resendExpiryNotice(id: number): Promise<void> {
+  await requireAdmin();
+  const app = await prisma.application.findUniqueOrThrow({
+    where: { id },
+    include: { referral: true, campus: true },
+  });
+  if (!app.late || !app.referral.cardGivenAt) return;
+  const sent = await sendMail({
+    to: app.email,
+    ...expiryNoticeMail({
+      guardianName: app.guardianName,
+      code: app.referral.code,
+      campusName: app.campus.name,
+      deadline: qrDeadlineDate(app.referral.cardGivenAt),
+    }),
+  });
+  if (sent) await prisma.application.update({ where: { id }, data: { expiryNoticeSentAt: new Date() } });
+  revalidatePath(`/admin/referrals/${app.referralId}`);
 }
 
 export async function deleteApplication(id: number): Promise<void> {

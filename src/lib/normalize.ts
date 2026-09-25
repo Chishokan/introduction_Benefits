@@ -1,3 +1,5 @@
+import { personKey } from "./rules";
+
 // 保護者入力の表記ゆれ（全角数字・全角ハイフン・前後空白）を吸収する。
 
 export function toHalfWidth(value: string): string {
@@ -21,7 +23,6 @@ export function normalizeName(value: string): string {
 
 // 職員入力の「紹介された方」と保護者入力の氏名を、空白の有無を無視して比較する
 export function sameName(a: string | null | undefined, b: string | null | undefined): boolean {
-  if (!a || !b) return false;
-  const k = (s: string) => s.replace(/[\s　]/g, "").replace("﨑", "崎");
-  return k(a) === k(b);
+  const ka = personKey(a);
+  return ka !== null && ka === personKey(b);
 }

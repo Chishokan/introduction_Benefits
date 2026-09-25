@@ -17,10 +17,16 @@ export default async function NewReferralPage() {
   return (
     <div className="max-w-2xl space-y-4">
       <h1 className="text-xl font-bold">特典コード登録</h1>
-      <p className="text-sm leading-relaxed text-slate-600">
-        紹介カードに印字したコードを登録します。印刷したカードを校舎へ配布するときは「終了コード」まで入力すると連番でまとめて登録できます。
-        生徒にカードを渡したら、一覧からコードを開いて塾生（特典を受け取る生徒）と紹介された方を入力してください。
-      </p>
+      <div className="space-y-1 text-sm leading-relaxed text-slate-600">
+        <p>
+          印刷したカードを校舎へ配布するときは「終了コード」まで入力すると連番でまとめて登録できます。
+        </p>
+        <p>
+          紹介が成立したら（入塾・講習申込み＝STEP2）、<strong>3日以内</strong>
+          に塾生・紹介された生徒・区分を入力してから、塾生へカードを渡してください。保護者の入力期限はカード配布日から1か月です。
+        </p>
+        <p>紹介された外部生1名につき特典は1回限りです。過去に同じ外部生が登録されている場合は警告が表示されます。</p>
+      </div>
       <NewReferralForm campuses={campuses} nextCode={nextCode} today={todayInput()} />
     </div>
   );

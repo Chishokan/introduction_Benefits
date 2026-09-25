@@ -4,7 +4,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { formatDate } from "@/lib/dates";
 import { prisma } from "@/lib/db";
 import { sameName } from "@/lib/normalize";
-import { listReferrals } from "@/lib/referrals";
+import { FLAGS, isFlagKey, listReferrals } from "@/lib/referrals";
 import { STATUSES, isStatusKey } from "@/lib/status";
 
 export const metadata: Metadata = { title: "特典コード一覧 | 紹介特典" };
@@ -18,23 +18,27 @@ export default async function AdminHome({ searchParams }: PageProps<"/admin">) {
   const campusId = Number(one(sp.campus)) || undefined;
   const status = one(sp.status);
   const q = one(sp.q);
+  const flag = one(sp.flag);
 
   const [campuses, all] = await Promise.all([
     prisma.campus.findMany({ orderBy: [{ sortOrder: "asc" }, { id: "asc" }] }),
     listReferrals({ campusId, q }),
   ]);
-  const rows = isStatusKey(status) ? all.filter((r) => r.status === status) : all;
+  const rows = all
+    .filter((r) => !isStatusKey(status) || r.status === status)
+    .filter((r) => !isFlagKey(flag) || r.flags[flag]);
   const counts = Object.fromEntries(STATUSES.map((s) => [s.key, all.filter((r) => r.status === s.key).length]));
+  const flagCounts = Object.fromEntries(FLAGS.map((f) => [f.key, all.filter((r) => r.flags[f.key]).length]));
 
   const query = (patch: Record<string, string | undefined>) => {
     const p = new URLSearchParams();
-    const merged = { campus: campusId ? String(campusId) : undefined, status, q, ...patch };
+    const merged = { campus: campusId ? String(campusId) : undefined, status, flag, q, ...patch };
     for (const [k, v] of Object.entries(merged)) if (v) p.set(k, v);
     const s = p.toString();
     return s ? `/admin?${s}` : "/admin";
   };
   const exportHref = `/admin/export?${new URLSearchParams(
-    Object.entries({ campus: campusId ? String(campusId) : "", status: status ?? "", q: q ?? "" }).filter(([, v]) => v),
+    Object.entries({ campus: campusId ? String(campusId) : "", status: status ?? "", flag: flag ?? "", q: q ?? "" }).filter(([, v]) => v),
   )}`;
 
   return (
@@ -51,7 +55,7 @@ export default async function AdminHome({ searchParams }: PageProps<"/admin">) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
         {STATUSES.map((s) => {
           const active = status === s.key;
           return (
@@ -67,8 +71,32 @@ export default async function AdminHome({ searchParams }: PageProps<"/admin">) {
         })}
       </div>
 
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="font-semibold text-slate-600">要対応：</span>
+        {FLAGS.map((f) => {
+          const active = flag === f.key;
+          const n = flagCounts[f.key];
+          return (
+            <Link
+              key={f.key}
+              href={query({ flag: active ? undefined : f.key })}
+              className={`rounded-full px-3 py-1 ring-1 ring-inset transition ${
+                active
+                  ? "bg-rose-600 text-white ring-rose-600"
+                  : n > 0
+                    ? "bg-rose-50 text-rose-700 ring-rose-300 hover:bg-rose-100"
+                    : "bg-white text-slate-400 ring-slate-200"
+              }`}
+            >
+              {f.label} <span className="font-bold tabular-nums">{n}</span>
+            </Link>
+          );
+        })}
+      </div>
+
       <form className="card flex flex-wrap items-end gap-3 p-3" action="/admin">
         {status && <input type="hidden" name="status" value={status} />}
+        {flag && <input type="hidden" name="flag" value={flag} />}
         <div>
           <label htmlFor="campus" className="label">
             校舎
@@ -97,7 +125,7 @@ export default async function AdminHome({ searchParams }: PageProps<"/admin">) {
         <button type="submit" className="btn-primary">
           絞り込み
         </button>
-        {(campusId || q || status) && (
+        {(campusId || q || status || flag) && (
           <Link href="/admin" className="btn-secondary">
             クリア
           </Link>
@@ -163,7 +191,12 @@ export default async function AdminHome({ searchParams }: PageProps<"/admin">) {
                   <td className="px-3 py-2 tabular-nums">{formatDate(r.paidAt)}</td>
                   <td className="px-3 py-2 tabular-nums">{formatDate(r.giftSentAt)}</td>
                   <td className="px-3 py-2">
-                    <StatusBadge status={r.status} />
+                    <div className="flex flex-col items-start gap-1">
+                      <StatusBadge status={r.status} />
+                      {r.flags.late && <span className="text-xs font-semibold text-rose-600">期限終了後申請</span>}
+                      {r.flags.delayed && <span className="text-xs font-semibold text-rose-600">入力3日超過</span>}
+                      {r.flags.duplicate && <span className="text-xs font-semibold text-rose-600">外部生重複?</span>}
+                    </div>
                   </td>
                 </tr>
               );

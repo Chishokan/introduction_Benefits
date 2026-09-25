@@ -3,11 +3,20 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { StatusBadge } from "@/components/StatusBadge";
-import { formatDateTime } from "@/lib/dates";
+import { formatDate, formatDateTime } from "@/lib/dates";
 import { prisma } from "@/lib/db";
+import { isMailConfigured } from "@/lib/mail";
 import { sameName } from "@/lib/normalize";
-import { referralStatus } from "@/lib/status";
-import { deleteApplication, deleteReferral, setApplicationConfirmed } from "../../../actions";
+import { findDuplicateReferred, withStatus } from "@/lib/referrals";
+import { isStaffInputDelayed, isValidApplication, qrDeadlineDate, staffInputDeadlineDate } from "@/lib/rules";
+import {
+  approveLateApplication,
+  deleteApplication,
+  deleteReferral,
+  resendExpiryNotice,
+  revokeLateApproval,
+  setApplicationConfirmed,
+} from "../../../actions";
 import { ReferralForm } from "./ReferralForm";
 
 export const metadata: Metadata = { title: "特典コード詳細 | 紹介特典" };
@@ -21,10 +30,15 @@ export default async function ReferralPage({ params }: PageProps<"/admin/referra
   if (!referral) notFound();
 
   const campuses = await prisma.campus.findMany({ orderBy: [{ sortOrder: "asc" }, { id: "asc" }] });
-  const status = referralStatus({ ...referral, applicationCount: referral.applications.length });
+  const status = withStatus(referral);
+  const duplicates = referral.duplicateAck ? [] : await findDuplicateReferred(referral.referredName, referral.id);
+  const earlier = duplicates.filter((d) => d.id < referral.id);
+  const delayed = isStaffInputDelayed(referral.enrolledAt, referral.assignedAt, new Date());
+  const qrDeadline = referral.cardGivenAt ? qrDeadlineDate(referral.cardGivenAt) : null;
   const h = await headers();
   const origin = process.env.APP_URL ?? `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}`;
   const applyUrl = `${origin}/apply?code=${referral.code}`;
+  const mailReady = isMailConfigured();
 
   return (
     <div className="space-y-6">
@@ -36,6 +50,45 @@ export default async function ReferralPage({ params }: PageProps<"/admin/referra
         <StatusBadge status={status} />
         <span className="text-sm text-slate-500">{referral.campus.name}</span>
       </div>
+
+      <div className="card grid gap-x-6 gap-y-2 p-4 text-sm sm:grid-cols-3">
+        <div>
+          <div className="text-xs text-slate-500">職員入力（STEP3）</div>
+          {referral.assignedAt ? formatDateTime(referral.assignedAt) : <span className="text-slate-400">未入力</span>}
+          {referral.enrolledAt && (
+            <div className={`text-xs ${delayed ? "font-semibold text-rose-600" : "text-slate-500"}`}>
+              期限 {formatDate(staffInputDeadlineDate(referral.enrolledAt))}
+              {delayed && " ⚠ 3日超過"}
+            </div>
+          )}
+        </div>
+        <div>
+          <div className="text-xs text-slate-500">カード配布（STEP4）</div>
+          {referral.cardGivenAt ? formatDate(referral.cardGivenAt) : <span className="text-slate-400">未入力</span>}
+        </div>
+        <div>
+          <div className="text-xs text-slate-500">保護者の入力期限（STEP5）</div>
+          {qrDeadline ? (
+            <span className={status === "expired" ? "font-semibold text-rose-600" : ""}>
+              {formatDate(qrDeadline)} まで{status === "expired" && "（期限切れ）"}
+            </span>
+          ) : (
+            <span className="text-slate-400">カード配布日の入力で設定</span>
+          )}
+        </div>
+      </div>
+
+      {earlier.length > 0 && (
+        <div role="alert" className="rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-800">
+          ⚠ 紹介された外部生「{referral.referredName}」は、先に登録されたコード
+          {earlier.map((d) => (
+            <Link key={d.id} href={`/admin/referrals/${d.id}`} className="mx-1 font-mono font-semibold underline">
+              {d.code}
+            </Link>
+          ))}
+          でも特典対象になっています。外部生1名につき特典は1回のみです。
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
         <section className="space-y-3">
@@ -62,7 +115,61 @@ export default async function ReferralPage({ params }: PageProps<"/admin/referra
           {referral.applications.map((a, i) => {
             const mismatch = referral.referredName && !sameName(a.referredName, referral.referredName);
             return (
-              <article key={a.id} className="card space-y-3 p-4 text-sm">
+              <article
+                key={a.id}
+                className={`card space-y-3 p-4 text-sm ${isValidApplication(a) ? "" : "border-rose-300 bg-rose-50/40"}`}
+              >
+                {a.late && (
+                  <div className="space-y-2 rounded-lg border border-rose-200 bg-white p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded bg-rose-600 px-1.5 py-0.5 text-xs font-bold text-white">期限終了後申請</span>
+                      {a.exceptionAt ? (
+                        <span className="text-xs font-semibold text-emerald-700">
+                          特例承認済み {formatDateTime(a.exceptionAt)}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-rose-700">無効（特典対象外）</span>
+                      )}
+                      <span className="text-xs text-slate-500">
+                        期限切れ通知メール：
+                        {a.expiryNoticeSentAt ? `送信済み ${formatDateTime(a.expiryNoticeSentAt)}` : "未送信"}
+                      </span>
+                    </div>
+                    {a.exceptionAt ? (
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <span>理由：{a.exceptionNote}</span>
+                        <form action={revokeLateApproval.bind(null, a.id)}>
+                          <button type="submit" className="btn-secondary px-2 py-1 text-xs">
+                            特例承認を取り消す
+                          </button>
+                        </form>
+                      </div>
+                    ) : (
+                      <>
+                        <form action={approveLateApplication.bind(null, a.id)} className="flex flex-wrap gap-2">
+                          <input
+                            name="exceptionNote"
+                            required
+                            placeholder="特例の理由（校舎責任者・NEP相談の結果）"
+                            aria-label="特例の理由"
+                            className="input min-w-52 flex-1 py-1 text-sm"
+                          />
+                          <button type="submit" className="btn-secondary px-2 py-1 text-xs">
+                            特例として有効にする
+                          </button>
+                        </form>
+                        {!a.expiryNoticeSentAt && (
+                          <form action={resendExpiryNotice.bind(null, a.id)}>
+                            <button type="submit" className="btn-secondary px-2 py-1 text-xs" disabled={!mailReady}>
+                              期限切れ通知メールを送信
+                            </button>
+                            {!mailReady && <span className="ml-2 text-xs text-slate-500">（メール送信設定が未設定です）</span>}
+                          </form>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-xs text-slate-500">
                     {formatDateTime(a.createdAt)} 受付
