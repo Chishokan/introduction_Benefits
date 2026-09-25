@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ApplyErrorList } from "@/components/ApplyErrorList";
+import { RecentApplications } from "@/components/RecentApplications";
+import { StatTile } from "@/components/StatTile";
+import { countInWindow, flattenApplications } from "@/lib/dashboard";
 import { FlagBar, StatusTiles } from "@/components/ReferralOverview";
 import { ReferralTable } from "@/components/ReferralTable";
 import { requireCampus } from "@/lib/auth";
@@ -25,6 +28,17 @@ export default async function CampusHome({ searchParams }: PageProps<"/campus">)
     .filter((r) => !isStatusKey(status) || r.status === status)
     .filter((r) => !isFlagKey(flag) || r.flags[flag]);
   const openErrors = errors.filter((e) => !e.resolvedAt);
+  // 検索・絞り込みに関係なく自校舎全体で集計する
+  const whole = q ? await listReferrals({ campusId }) : all;
+  const apps = flattenApplications(whole);
+  const week = countInWindow(
+    apps.map((a) => a.createdAt),
+    7,
+    new Date(),
+  );
+  const waiting = whole.filter((r) => r.status === "distributed").length;
+  const dueSoon = whole.filter((r) => r.flags.dueSoon).length;
+  const withIssues = whole.filter((r) => Object.values(r.flags).some(Boolean)).length + openErrors.length;
   const issues = FLAGS.map((f) => ({ ...f, rows: all.filter((r) => r.flags[f.key]) })).filter((f) => f.rows.length > 0);
 
   const query = (patch: Record<string, string | undefined>) => {
@@ -49,6 +63,22 @@ export default async function CampusHome({ searchParams }: PageProps<"/campus">)
             開く
           </button>
         </form>
+      </section>
+
+      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatTile
+          label="新規申込み（直近7日）"
+          value={week.current}
+          delta={{ value: week.current - week.previous, period: "前の7日" }}
+        />
+        <StatTile label="保護者の申込待ち" value={waiting} href="/campus?status=distributed" note="カードを渡して申込みがまだ" />
+        <StatTile label="入力期限7日以内" value={dueSoon} href="/campus?flag=dueSoon" note="保護者へ声かけを" alert />
+        <StatTile label="要対応" value={withIssues} note="下の一覧を確認してください" alert />
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="font-bold">新着の申込み</h2>
+        <RecentApplications apps={apps.slice(0, 5)} linkBase="/campus/referrals" empty="まだ申込みはありません" />
       </section>
 
       <section className="space-y-3">

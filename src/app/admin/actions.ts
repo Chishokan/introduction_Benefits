@@ -128,7 +128,7 @@ export async function deleteReferral(id: number): Promise<void> {
   if (count > 0) throw new Error("申込みがあるコードは削除できません");
   await prisma.referral.delete({ where: { id } });
   revalidatePath("/admin");
-  redirect("/admin");
+  redirect("/admin/referrals");
 }
 
 // ---- 保護者申込み ----------------------------------------------------------
