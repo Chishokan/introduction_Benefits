@@ -1,0 +1,95 @@
+// 紹介特典管理アプリのデータモデル（Supabase / PostgreSQL）
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  // アプリからの接続: Supabase の Transaction pooler（ポート 6543, ?pgbouncer=true）
+  url       = env("DATABASE_URL")
+  // マイグレーション用の直接接続: Supabase の Session pooler または Direct connection（ポート 5432）
+  directUrl = env("DIRECT_URL")
+}
+
+// 校舎（日野校・日宇校・大野校・佐々校 など）
+model Campus {
+  id           Int           @id @default(autoincrement())
+  name         String        @unique
+  sortOrder    Int           @default(0)
+  active       Boolean       @default(true)
+  passwordHash String? // 校舎担当者ログイン用パスワード（scrypt）。未設定の校舎はログイン不可
+  referrals    Referral[]
+  applications Application[]
+  applyErrors  ApplyError[]
+}
+
+// 特典コード（紹介カード1枚＝1レコード）
+// スプレッドシート「管理表」の1行に相当する
+model Referral {
+  id              Int           @id @default(autoincrement())
+  code            String        @unique // カードに印字された招待コード（例: 109135）
+  campusId        Int
+  campus          Campus        @relation(fields: [campusId], references: [id])
+  enrollmentType  String? // 通常入会 / 講習会申込み（lib/constants.ts の ENROLLMENT_TYPES）
+  studentName     String? // 職員入力: 特典を受け取る生徒名（塾生）
+  referredName    String? // 職員入力: 紹介されて入塾・講習申込した方の氏名
+  staffName       String? // 担当者名
+  distributedAt   DateTime? // 校舎配布日（印刷したカードを校舎へ送った日）
+  assignedAt      DateTime? // 職員が特典管理に生徒を入力した日時（STEP3）
+  cardGivenAt     DateTime? // 塾生へカードを渡した日（STEP4）。保護者の入力期限の起点
+  duplicateAck    Boolean       @default(false) // 紹介された方の重複を確認のうえ登録した（同姓同名の別人）
+  enrolledAt      DateTime? // 入塾日・講習申込日
+  paidAt          DateTime? // 入金日
+  amazonOrderedAt DateTime? // Amazon ギフトコード発注日
+  giftCode        String? // Amazon ギフトコード
+  giftSentAt      DateTime? // ギフトコードをメール送信した日時
+  note            String? // 備考
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  applications    Application[]
+
+  @@index([campusId])
+}
+
+// 保護者からの申込み（Google フォーム「紹介特典」の回答に相当）
+model Application {
+  id                 Int       @id @default(autoincrement())
+  referralId         Int
+  referral           Referral  @relation(fields: [referralId], references: [id])
+  campusId           Int
+  campus             Campus    @relation(fields: [campusId], references: [id])
+  studentName        String // 生徒名（塾生）
+  guardianName       String // 保護者名
+  email              String
+  address            String
+  phone              String
+  referredGrade      String // ご紹介した方の学年
+  referredName       String // ご紹介した方の氏名
+  confirmedAt        DateTime? // 職員が内容を確認した日時
+  late               Boolean   @default(false) // 入力期限（カード配布から1か月）を過ぎた申請
+  exceptionAt        DateTime? // 期限超過を特例として承認した日時（校舎責任者・NEP相談の上）
+  exceptionNote      String?
+  expiryNoticeSentAt DateTime? // 期限切れ通知メールを送信した日時
+  createdAt          DateTime  @default(now())
+
+  @@index([referralId])
+}
+
+// 保護者の申込みが受け付けられなかった記録（旧運用の「申込みエラー」通知に相当）
+// 入力チェックの不備ではなく、招待コードが見つからない等で送信できなかったもの
+model ApplyError {
+  id           Int       @id @default(autoincrement())
+  code         String // 保護者が入力した招待コード
+  reason       String // not_found / gift_sent
+  campusId     Int? // 保護者が選択した所属校舎
+  campus       Campus?   @relation(fields: [campusId], references: [id])
+  studentName  String
+  guardianName String
+  email        String
+  phone        String
+  resolvedAt   DateTime? // 経理・校舎が対応済みにした日時
+  createdAt    DateTime  @default(now())
+
+  @@index([campusId])
+}
