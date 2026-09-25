@@ -31,7 +31,7 @@ Google フォーム＋スプレッドシート（【中等部】紹介特典（�
 | 表示 | 内容 |
 |------|------|
 | 期限終了後申請（未承認） | カード配布から1か月を過ぎて保護者が入力した。特例にするかは校舎責任者・NEP と相談 |
-| 期限切れ通知メール未送信 | 期限切れの通知メールが送れていない（SMTP 未設定・送信失敗） |
+| 期限切れ通知メール未送信 | 期限切れの通知メールが送れていない（GAS 未設定・送信失敗） |
 | 入力期限7日以内・未申込 | 保護者の入力期限が近い。保護者へ声かけ |
 | 職員未入力のコードへ申込 | 保護者の申込みはあるが STEP3 が未入力 |
 | 職員入力が3日超過 | 入塾・講習申込日から3日を過ぎて STEP3 を入力（または未入力） |
@@ -76,33 +76,42 @@ Google フォーム＋スプレッドシート（【中等部】紹介特典（�
 ## 技術構成
 
 - Next.js 16（App Router / Server Actions）+ TypeScript + Tailwind CSS 4
-- nodemailer（期限切れ通知メール）
-- Prisma 6（開発: SQLite、本番: PostgreSQL 推奨）
+- Prisma 6 + **Supabase（PostgreSQL）**
+- 通知メール: **Google Apps Script（GAS）の Web アプリ経由で社用 Gmail から送信**（スクリプトは [`gas/`](gas/README.md)）
 - zod（入力チェック）、Vitest（テスト）
 - ログインは経理（環境変数のパスワード）と校舎担当者（校舎ごとのパスワード・scrypt ハッシュ）の2種類。署名付き Cookie（12時間）に役割と校舎を保持
 
-## セットアップ
+## 本番環境の準備
+
+**[docs/DEPLOY.md](docs/DEPLOY.md)** に、Supabase・GAS・ホスティングの設定手順とチェックリストをまとめています。
+
+## 開発環境のセットアップ
+
+ローカルの PostgreSQL（または開発用の Supabase プロジェクト）を用意します。
 
 ```bash
 npm install
-cp .env.example .env        # ADMIN_PASSWORD と SESSION_SECRET を必ず変更
-npx prisma migrate dev      # DB 作成
+cp .env.example .env        # DATABASE_URL / DIRECT_URL と ADMIN_PASSWORD・SESSION_SECRET を設定
+npx prisma migrate dev      # テーブル作成
 npm run db:seed             # 校舎（日野校・日宇校・大野校・佐々校）を登録
 npm run dev                 # http://localhost:3000
 ```
 
 - 保護者フォーム: http://localhost:3000/apply
 - ログイン: http://localhost:3000/login （経理は `.env` の `ADMIN_PASSWORD`。校舎担当者は経理画面で校舎パスワードを設定してから）
+- `GAS_MAIL_URL` を設定しない場合、メールは送信されずサーバーログに内容が出力されます。
 
 ### 環境変数
 
-| 変数 | 説明 |
-|------|------|
-| `DATABASE_URL` | DB 接続先。SQLite なら `file:./dev.db` |
-| `ADMIN_PASSWORD` | 経理用ログインパスワード（校舎担当者のパスワードは管理画面で設定） |
-| `SESSION_SECRET` | セッション署名用の秘密鍵（16文字以上のランダム文字列。`openssl rand -base64 32` など） |
-| `APP_URL` | 任意。公開 URL（コード詳細に表示する QR 用 URL に使用） |
-| `SMTP_HOST` `SMTP_PORT` `SMTP_USER` `SMTP_PASS` `MAIL_FROM` | 期限切れ通知メールの送信設定。Gmail なら `smtp.gmail.com` / `465` / アドレス / アプリパスワード。未設定の場合は送信せずサーバーログに出力し、コード詳細から後で送信できます |
+| 変数 | 必須 | 説明 |
+|------|:---:|------|
+| `DATABASE_URL` | ○ | アプリ用の DB 接続。Supabase の **Transaction pooler**（ポート 6543）に `?pgbouncer=true&connection_limit=1` を付けたもの |
+| `DIRECT_URL` | ○ | マイグレーション用の DB 接続。Supabase の **Session pooler** または **Direct connection**（ポート 5432） |
+| `ADMIN_PASSWORD` | ○ | 経理用ログインパスワード（校舎担当者のパスワードは管理画面で設定） |
+| `SESSION_SECRET` | ○ | セッション署名用の秘密鍵（32文字以上のランダム文字列。`openssl rand -base64 32` など） |
+| `APP_URL` | 推奨 | 公開 URL（コード詳細に表示する QR 用 URL に使用） |
+| `GAS_MAIL_URL` | 推奨 | 通知メール送信用 GAS Web アプリの URL（`https://script.google.com/macros/s/.../exec`） |
+| `GAS_MAIL_SECRET` | 推奨 | GAS のスクリプト プロパティ `MAIL_SECRET` と同じ合言葉 |
 
 ### テスト・チェック
 
@@ -112,13 +121,6 @@ npm run typecheck
 npm run lint
 npm run build
 ```
-
-## 本番運用
-
-1. PostgreSQL を用意し、`prisma/schema.prisma` の `provider` を `"postgresql"` に変更します。
-   マイグレーションは SQLite 用に作成しているため、`prisma/migrations` を削除して `npx prisma migrate dev --name init` で作り直してください。
-2. ホスティング（Vercel 等）に環境変数を設定し、デプロイ時に `npm run db:deploy` を実行します。
-3. 初回のみ `npm run db:seed` で校舎を登録します（管理画面の「校舎」からも追加・非表示にできます）。
 
 ### QR コード
 

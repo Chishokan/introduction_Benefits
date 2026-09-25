@@ -91,18 +91,18 @@ export async function listReferrals(filter: ReferralFilter = {}): Promise<Referr
     ...(q
       ? {
           OR: [
-            { code: { contains: q } },
-            { studentName: { contains: q } },
-            { referredName: { contains: q } },
-            { staffName: { contains: q } },
+            { code: { contains: q, mode: "insensitive" } },
+            { studentName: { contains: q, mode: "insensitive" } },
+            { referredName: { contains: q, mode: "insensitive" } },
+            { staffName: { contains: q, mode: "insensitive" } },
             {
               applications: {
                 some: {
                   OR: [
-                    { studentName: { contains: q } },
-                    { guardianName: { contains: q } },
-                    { email: { contains: q } },
-                    { referredName: { contains: q } },
+                    { studentName: { contains: q, mode: "insensitive" } },
+                    { guardianName: { contains: q, mode: "insensitive" } },
+                    { email: { contains: q, mode: "insensitive" } },
+                    { referredName: { contains: q, mode: "insensitive" } },
                   ],
                 },
               },

@@ -1,13 +1,15 @@
-// 紹介特典管理アプリのデータモデル
-// 開発時は SQLite。本番で PostgreSQL を使う場合は provider を "postgresql" に変更する。
+// 紹介特典管理アプリのデータモデル（Supabase / PostgreSQL）
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  // アプリからの接続: Supabase の Transaction pooler（ポート 6543, ?pgbouncer=true）
+  url       = env("DATABASE_URL")
+  // マイグレーション用の直接接続: Supabase の Session pooler または Direct connection（ポート 5432）
+  directUrl = env("DIRECT_URL")
 }
 
 // 校舎（日野校・日宇校・大野校・佐々校 など）
