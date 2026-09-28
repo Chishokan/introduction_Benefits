@@ -60,3 +60,28 @@ export function personKey(name: string | null | undefined): string | null {
   const k = name.replace(/[\s　]/g, "").replace(/﨑/g, "崎").replace(/髙/g, "高");
   return k || null;
 }
+
+// 職員入力（STEP3）から1週間経っても保護者の申込みがなければ、校舎の LINE WORKS へ1回だけ通知する
+export const NO_APPLY_NOTIFY_DAYS = 7;
+
+export type NoApplyInput = {
+  studentName: string | null;
+  assignedAt: Date | null;
+  giftSentAt: Date | null;
+  noApplyNotifiedAt: Date | null;
+  applicationCount: number;
+};
+
+export function isNoApplyOverdue(r: Omit<NoApplyInput, "noApplyNotifiedAt">, now: Date): boolean {
+  return (
+    !!r.studentName &&
+    r.assignedAt !== null &&
+    r.giftSentAt === null &&
+    r.applicationCount === 0 &&
+    now.getTime() - r.assignedAt.getTime() >= NO_APPLY_NOTIFY_DAYS * 86_400_000
+  );
+}
+
+export function needsNoApplyNotice(r: NoApplyInput, now: Date): boolean {
+  return r.noApplyNotifiedAt === null && isNoApplyOverdue(r, now);
+}
