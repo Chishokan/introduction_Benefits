@@ -9,6 +9,7 @@
 - [ ] 5. 経理でログインし、校舎パスワードを設定・校舎担当者へ連絡
 - [ ] 6. 期限切れ通知メールのテスト送信を確認
 - [ ] 7. 紹介カードの QR コードを新しい URL に差し替え、未使用カードのコードを登録
+- [ ] 8. LINE WORKS 通知を設定（`CRON_SECRET` と校舎ごとの Webhook URL）
 
 ---
 
@@ -126,3 +127,31 @@ npm run db:deploy   # マイグレーション適用
 npm run db:seed     # 校舎の初期登録（未登録時のみ）
 npm run import:sheet -- 管理表.csv --dry-run
 ```
+
+## LINE WORKS 通知
+
+職員入力から1週間経っても保護者の申込みがないコードを、毎朝9時ごろ校舎の LINE WORKS トークルームへ通知します（`vercel.json` の `crons` で毎日 0:00 UTC = 9:00 JST に実行。Hobby プランでは実行時刻が最大1時間ほど前後します）。
+
+### 1. Vercel に `CRON_SECRET` を設定
+
+1. `openssl rand -base64 32` などでランダムな文字列を作る
+2. Vercel → Settings → Environment Variables に `CRON_SECRET` として追加（Production）し、再デプロイ
+   - Vercel が自動実行時にこの値を `Authorization` ヘッダーに付けて呼び出します。設定しないと自動実行は拒否されます。
+3. Vercel → Settings → **Cron Jobs** に `/api/cron/no-application` が表示されていることを確認
+
+### 2. LINE WORKS で Webhook URL を発行（校舎ごと）
+
+1. LINE WORKS 管理者画面の **アプリディレクトリ** で「**Incoming Webhook**」アプリを追加
+2. 通知を受け取りたいトークルーム（例: 日野校の職員グループ）に **Incoming Webhook Bot を招待**
+3. トークルームの **チャンネル ID** を確認
+4. Incoming Webhook アプリの Webhook 一覧で「追加」→ タイトル（例: 紹介特典 日野校）とチャンネル ID を入力
+5. 発行された **Webhook URL**（`https://webhook.worksmobile.com/message/...`）をコピー
+
+※ Webhook URL は最大5つまで発行できます（4校舎＋予備1）。
+
+### 3. アプリに設定
+
+1. 経理でログイン →「校舎・パスワード・通知」
+2. 各校舎の「LINE WORKS 通知」欄に Webhook URL を貼り付けて「保存」
+3. 「テスト送信」でトークルームにテスト通知が届くことを確認
+4. 必要なら「今すぐ通知を実行する」で、その時点の対象コードをすぐ通知できます

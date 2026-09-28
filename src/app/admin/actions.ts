@@ -19,6 +19,8 @@ import {
 import { normalizeCode } from "@/lib/normalize";
 import { qrDeadlineDate } from "@/lib/rules";
 import { decodeCsv, importSheetRows, readSheet, type ImportResult } from "@/lib/importSheet";
+import { isLineWorksWebhookUrl, sendLineWorks } from "@/lib/lineworks";
+import { runNoApplyNotices } from "@/lib/noApplyNotice";
 import { hashPassword } from "@/lib/session";
 
 export type { ActionState };
@@ -248,4 +250,47 @@ export async function importSheet(_prev: ImportState, formData: FormData): Promi
   const result = await importSheetRows(prisma, rows, { dryRun });
   if (!dryRun) revalidatePath("/", "layout");
   return { dryRun, fileName: file.name, result };
+}
+
+// ---- LINE WORKS 通知 --------------------------------------------------------
+
+function campusesNotice(message: string): never {
+  redirect(`/admin/campuses?notice=${encodeURIComponent(message)}`);
+}
+
+export async function setCampusWebhook(id: number, formData: FormData): Promise<void> {
+  await requireAccounting();
+  const url = text(formData, "webhookUrl");
+  if (url && !isLineWorksWebhookUrl(url)) {
+    campusesNotice("Webhook URL は https://webhook.worksmobile.com/message/… の形式で入力してください");
+  }
+  await prisma.campus.update({ where: { id }, data: { lineWorksWebhookUrl: url } });
+  revalidatePath("/admin/campuses");
+  campusesNotice(url ? "LINE WORKS の通知先を保存しました" : "LINE WORKS の通知先を削除しました");
+}
+
+export async function testCampusWebhook(id: number): Promise<void> {
+  await requireAccounting();
+  const campus = await prisma.campus.findUniqueOrThrow({ where: { id } });
+  if (!campus.lineWorksWebhookUrl) campusesNotice("通知先が設定されていません");
+  const ok = await sendLineWorks(campus.lineWorksWebhookUrl, {
+    title: `【紹介特典】テスト通知（${campus.name}）`,
+    text: "紹介特典アプリからのテスト通知です。このトークルームに、保護者の申込みがないコードのお知らせが届きます。",
+  });
+  campusesNotice(ok ? `${campus.name} へテスト通知を送りました` : `${campus.name} へのテスト通知に失敗しました。URL を確認してください`);
+}
+
+// 毎朝の自動通知と同じ処理を今すぐ実行する
+export async function runNoApplyNow(): Promise<void> {
+  await requireAccounting();
+  const result = await runNoApplyNotices(prisma);
+  revalidatePath("/", "layout");
+  if (result.length === 0) campusesNotice("通知対象のコードはありませんでした");
+  campusesNotice(
+    result
+      .map((r) =>
+        r.skipped ? `${r.campus}: ${r.targets}件（通知先未設定）` : `${r.campus}: ${r.targets}件 ${r.sent ? "送信しました" : "送信に失敗"}`,
+      )
+      .join(" / "),
+  );
 }

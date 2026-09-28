@@ -14,40 +14,42 @@ datasource db {
 
 // 校舎（日野校・日宇校・大野校・佐々校 など）
 model Campus {
-  id           Int           @id @default(autoincrement())
-  name         String        @unique
-  sortOrder    Int           @default(0)
-  active       Boolean       @default(true)
-  passwordHash String? // 校舎担当者ログイン用パスワード（scrypt）。未設定の校舎はログイン不可
-  referrals    Referral[]
-  applications Application[]
-  applyErrors  ApplyError[]
+  id                  Int           @id @default(autoincrement())
+  name                String        @unique
+  sortOrder           Int           @default(0)
+  active              Boolean       @default(true)
+  passwordHash        String? // 校舎担当者ログイン用パスワード（scrypt）。未設定の校舎はログイン不可
+  lineWorksWebhookUrl String? // LINE WORKS Incoming Webhook の URL（校舎担当者のトークルームへの通知先）
+  referrals           Referral[]
+  applications        Application[]
+  applyErrors         ApplyError[]
 }
 
 // 特典コード（紹介カード1枚＝1レコード）
 // スプレッドシート「管理表」の1行に相当する
 model Referral {
-  id              Int           @id @default(autoincrement())
-  code            String        @unique // カードに印字された招待コード（例: 109135）
-  campusId        Int
-  campus          Campus        @relation(fields: [campusId], references: [id])
-  enrollmentType  String? // 通常入会 / 講習会申込み（lib/constants.ts の ENROLLMENT_TYPES）
-  studentName     String? // 職員入力: 特典を受け取る生徒名（塾生）
-  referredName    String? // 職員入力: 紹介されて入塾・講習申込した方の氏名
-  staffName       String? // 担当者名
-  distributedAt   DateTime? // 校舎配布日（印刷したカードを校舎へ送った日）
-  assignedAt      DateTime? // 職員が特典管理に生徒を入力した日時（STEP3）
-  cardGivenAt     DateTime? // 塾生へカードを渡した日（STEP4）。保護者の入力期限の起点
-  duplicateAck    Boolean       @default(false) // 紹介された方の重複を確認のうえ登録した（同姓同名の別人）
-  enrolledAt      DateTime? // 入塾日・講習申込日
-  paidAt          DateTime? // 入金日
-  amazonOrderedAt DateTime? // Amazon ギフトコード発注日
-  giftCode        String? // Amazon ギフトコード
-  giftSentAt      DateTime? // ギフトコードをメール送信した日時
-  note            String? // 備考
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  applications    Application[]
+  id                Int           @id @default(autoincrement())
+  code              String        @unique // カードに印字された招待コード（例: 109135）
+  campusId          Int
+  campus            Campus        @relation(fields: [campusId], references: [id])
+  enrollmentType    String? // 通常入会 / 講習会申込み（lib/constants.ts の ENROLLMENT_TYPES）
+  studentName       String? // 職員入力: 特典を受け取る生徒名（塾生）
+  referredName      String? // 職員入力: 紹介されて入塾・講習申込した方の氏名
+  staffName         String? // 担当者名
+  distributedAt     DateTime? // 校舎配布日（印刷したカードを校舎へ送った日）
+  assignedAt        DateTime? // 職員が特典管理に生徒を入力した日時（STEP3）
+  cardGivenAt       DateTime? // 塾生へカードを渡した日（STEP4）。保護者の入力期限の起点
+  duplicateAck      Boolean       @default(false) // 紹介された方の重複を確認のうえ登録した（同姓同名の別人）
+  noApplyNotifiedAt DateTime? // 職員入力から1週間経っても保護者申込みがない旨を LINE WORKS へ通知した日時
+  enrolledAt        DateTime? // 入塾日・講習申込日
+  paidAt            DateTime? // 入金日
+  amazonOrderedAt   DateTime? // Amazon ギフトコード発注日
+  giftCode          String? // Amazon ギフトコード
+  giftSentAt        DateTime? // ギフトコードをメール送信した日時
+  note              String? // 備考
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  applications      Application[]
 
   @@index([campusId])
 }

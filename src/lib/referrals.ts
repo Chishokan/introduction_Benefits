@@ -2,7 +2,14 @@ import "server-only";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "./db";
 import { sameName } from "./normalize";
-import { isAfterQrDeadline, isStaffInputDelayed, isValidApplication, personKey, qrDeadlineDate } from "./rules";
+import {
+  isAfterQrDeadline,
+  isNoApplyOverdue,
+  isStaffInputDelayed,
+  isValidApplication,
+  personKey,
+  qrDeadlineDate,
+} from "./rules";
 import { referralStatus, type StatusKey } from "./status";
 
 export type ReferralFilter = {
@@ -21,6 +28,7 @@ type ReferralWithApps = Prisma.ReferralGetPayload<{ include: typeof listInclude 
 export const FLAGS = [
   { key: "late", short: "期限終了後申請", label: "期限終了後申請（未承認）", hint: "カード配布から1か月を過ぎて保護者が入力。特例にするかは校舎責任者・NEPと相談" },
   { key: "noticeUnsent", short: "通知未送信", label: "期限切れ通知メール未送信", hint: "期限切れの通知メールが送れていません" },
+  { key: "noApplyWeek", short: "1週間未申込", label: "職員入力から1週間・未申込", hint: "職員入力から1週間経っても保護者の申込みがありません（LINE WORKS へも通知）" },
   { key: "dueSoon", short: "期限間近", label: "入力期限7日以内・未申込", hint: "保護者の入力期限が近づいています。保護者へ声かけしてください" },
   { key: "noAssignment", short: "職員未入力", label: "職員未入力のコードへ申込", hint: "保護者の申込みはあるが、STEP3（塾生・紹介された生徒・区分）が未入力" },
   { key: "delayed", short: "入力3日超過", label: "職員入力が3日超過", hint: "入塾・講習申込日から3日以内に STEP3 を入力してください" },
@@ -74,6 +82,11 @@ function flagsFor(r: ReferralWithApps, now: Date, duplicate: boolean): Record<Fl
       deadline !== null &&
       !isAfterQrDeadline(r.cardGivenAt, now) &&
       deadline.getTime() - now.getTime() < DUE_SOON_DAYS * 86400000,
+    // 期限切れ後や、カード配布日のない古いデータ（職員入力から45日超）は対象外
+    noApplyWeek:
+      isNoApplyOverdue({ ...r, applicationCount: r.applications.length }, now) &&
+      !isAfterQrDeadline(r.cardGivenAt, now) &&
+      now.getTime() - r.assignedAt!.getTime() < 45 * 86_400_000,
     noAssignment: r.applications.length > 0 && !r.studentName,
     delayed: isStaffInputDelayed(r.enrolledAt, r.assignedAt, now) && !r.giftSentAt,
     mismatch:
